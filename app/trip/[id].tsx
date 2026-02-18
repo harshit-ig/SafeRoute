@@ -21,6 +21,8 @@ import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '..
 import { Trip, TripStatus } from '../../src/types';
 import { formatTime, formatDistance, calculateHaversineDistance } from '../../src/utils/helpers';
 import { getCurrentLocation } from '../../src/utils/helpers';
+import { decodePolyline, fetchRoute } from '../../src/utils/maps';
+import { LatLng } from 'react-native-maps';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -32,6 +34,7 @@ export default function ActiveTripScreen() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
+  const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -58,8 +61,33 @@ export default function ActiveTripScreen() {
   const loadTrip = async () => {
     if (!id) return;
     const t = await loadTripById(id);
-    if (t) setTrip(t);
-    else if (activeTrip?.id === id) setTrip(activeTrip);
+    if (t) {
+      setTrip(t);
+      await loadRoutePolyline(t);
+    } else if (activeTrip?.id === id) {
+      setTrip(activeTrip);
+      await loadRoutePolyline(activeTrip);
+    }
+  };
+
+  const loadRoutePolyline = async (t: Trip) => {
+    // First try to decode the stored encoded polyline
+    if (t.routePolyline && t.routePolyline.length > 0) {
+      try {
+        const decoded = decodePolyline(t.routePolyline);
+        if (decoded.length >= 2) {
+          setRouteCoords(decoded);
+          return;
+        }
+      } catch {}
+    }
+    // Fallback: fetch from Directions API
+    const src = { latitude: t.sourceLat, longitude: t.sourceLng };
+    const dst = { latitude: t.destinationLat, longitude: t.destinationLng };
+    const result = await fetchRoute(src, dst);
+    if (result.coords.length >= 2) {
+      setRouteCoords(result.coords);
+    }
   };
 
   const fetchLocation = async () => {
@@ -193,12 +221,19 @@ export default function ActiveTripScreen() {
             </View>
           </Marker>
         )}
-        {trip.routePolyline && trip.routePolyline.length > 0 && (
-          <Polyline
-            coordinates={[source, destination]}
-            strokeColor={Colors.primary}
-            strokeWidth={4}
-          />
+        {routeCoords.length >= 2 && (
+          <>
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor={Colors.primary + '35'}
+              strokeWidth={8}
+            />
+            <Polyline
+              coordinates={routeCoords}
+              strokeColor={Colors.primary}
+              strokeWidth={4}
+            />
+          </>
         )}
       </MapView>
 

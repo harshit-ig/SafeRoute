@@ -7,9 +7,10 @@ import {
   ScrollView,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline, LatLng } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouteStore } from '../../src/stores/routeStore';
@@ -18,6 +19,7 @@ import Card from '../../src/components/Card';
 import Button from '../../src/components/Button';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 import { SavedRoute, RoutePath } from '../../src/types';
+import { fetchRoute } from '../../src/utils/maps';
 
 const PATH_COLORS = [Colors.primary, Colors.safeGreen, Colors.warningOrange, '#FF6B9D', '#00D2FF'];
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -28,6 +30,8 @@ export default function RouteDetailScreen() {
   const { currentRoute, loadRouteById, deleteRoute, isLoading } = useRouteStore();
   const [selectedPathIndex, setSelectedPathIndex] = useState(0);
   const [route, setRoute] = useState<SavedRoute | null>(null);
+  const [pathPolylines, setPathPolylines] = useState<LatLng[][]>([]);
+  const [loadingPolylines, setLoadingPolylines] = useState(false);
 
   useEffect(() => {
     if (id) loadRouteAndSet();
@@ -35,7 +39,33 @@ export default function RouteDetailScreen() {
 
   const loadRouteAndSet = async () => {
     const r = await loadRouteById(id!);
-    if (r) setRoute(r);
+    if (r) {
+      setRoute(r);
+      // Fetch real road-following polylines for each path from Directions API
+      await fetchPathPolylines(r);
+    }
+  };
+
+  const fetchPathPolylines = async (r: SavedRoute) => {
+    if (!r.paths || r.paths.length === 0) return;
+    setLoadingPolylines(true);
+    const src = { latitude: r.sourceLat, longitude: r.sourceLng };
+    const dst = { latitude: r.destinationLat, longitude: r.destinationLng };
+    const polylines: LatLng[][] = [];
+    for (const path of r.paths) {
+      const sorted = [...(path.points || [])].sort((a, b) => a.order - b.order);
+      const waypoints = sorted.filter((p) => p.isWaypoint).map((p) => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+      }));
+      const result = await fetchRoute(src, dst, waypoints);
+      polylines.push(result.coords.length >= 2 ? result.coords : sorted.map((p) => ({
+        latitude: p.latitude,
+        longitude: p.longitude,
+      })));
+    }
+    setPathPolylines(polylines);
+    setLoadingPolylines(false);
   };
 
   const handleDelete = () => {
@@ -115,10 +145,7 @@ export default function RouteDetailScreen() {
           >
             {source && <Marker coordinate={source} title="Source" pinColor="green" />}
             {destination && <Marker coordinate={destination} title="Destination" pinColor="red" />}
-            {route.paths?.map((path, pIndex) => {
-              const coords = (path.points || [])
-                .sort((a, b) => a.order - b.order)
-                .map((pt) => ({ latitude: pt.latitude, longitude: pt.longitude }));
+            {pathPolylines.map((coords, pIndex) => {
               if (coords.length < 2) return null;
               return (
                 <Polyline
@@ -127,6 +154,21 @@ export default function RouteDetailScreen() {
                   strokeColor={PATH_COLORS[pIndex % PATH_COLORS.length]}
                   strokeWidth={selectedPathIndex === pIndex ? 5 : 2}
                   lineDashPattern={selectedPathIndex === pIndex ? undefined : [8, 4]}
+                />
+              );
+            })}
+            {loadingPolylines && pathPolylines.length === 0 && route.paths?.map((path, pIndex) => {
+              const coords = [...(path.points || [])]
+                .sort((a, b) => a.order - b.order)
+                .map((pt) => ({ latitude: pt.latitude, longitude: pt.longitude }));
+              if (coords.length < 2) return null;
+              return (
+                <Polyline
+                  key={`fallback-${pIndex}`}
+                  coordinates={coords}
+                  strokeColor={PATH_COLORS[pIndex % PATH_COLORS.length] + '60'}
+                  strokeWidth={2}
+                  lineDashPattern={[6, 4]}
                 />
               );
             })}

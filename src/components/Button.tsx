@@ -8,7 +8,7 @@ import {
   TextStyle,
 } from 'react-native';
 import { Colors, BorderRadius, FontSize, FontWeight, Spacing, Shadows } from '../constants/theme';
-import { LinearGradient } from 'expo-linear-gradient' ;
+import { Ionicons } from '@expo/vector-icons';
 
 interface ButtonProps {
   title: string;
@@ -17,7 +17,7 @@ interface ButtonProps {
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   disabled?: boolean;
-  icon?: React.ReactNode;
+  icon?: React.ReactNode | string;
   style?: ViewStyle;
   textStyle?: TextStyle;
   fullWidth?: boolean;
@@ -78,7 +78,11 @@ export default function Button({
         <ActivityIndicator color={v.text} size="small" />
       ) : (
         <>
-          {icon}
+          {typeof icon === 'string' ? (
+            <Ionicons name={icon as any} size={s.fontSize} color={v.text} />
+          ) : (
+            icon
+          )}
           <Text
             style={[
               styles.text,

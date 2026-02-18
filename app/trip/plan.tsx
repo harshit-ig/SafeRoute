@@ -19,8 +19,9 @@ import Input from '../../src/components/Input';
 import Button from '../../src/components/Button';
 import Card from '../../src/components/Card';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
-import { SavedRoute } from '../../src/types';
-import { getCurrentLocation } from '../../src/utils/helpers';
+import { SavedRoute, TripStatus } from '../../src/types';
+import { getCurrentLocation, generateId } from '../../src/utils/helpers';
+import { fetchRoute } from '../../src/utils/maps';
 
 export default function PlanTripScreen() {
   const insets = useSafeAreaInsets();
@@ -34,10 +35,11 @@ export default function PlanTripScreen() {
   const [estimatedDuration, setEstimatedDuration] = useState('');
   const [selectedRoute, setSelectedRoute] = useState<SavedRoute | null>(null);
   const [showRoutes, setShowRoutes] = useState(false);
+  const [fetchingRoute, setFetchingRoute] = useState(false);
 
   React.useEffect(() => {
-    loadRoutes();
-  }, []);
+    if (user?.id) loadRoutes(user.id);
+  }, [user?.id]);
 
   const handleSelectRoute = (route: SavedRoute) => {
     setSelectedRoute(route);
@@ -64,7 +66,29 @@ export default function PlanTripScreen() {
       return;
     }
 
-    const trip = await startTrip({
+    // Fetch road-following route from Directions API
+    setFetchingRoute(true);
+    const src = { latitude: loc.latitude, longitude: loc.longitude };
+    const dst = { latitude: parseFloat(destinationLat), longitude: parseFloat(destinationLng) };
+
+    // If a saved route is selected, get its first path's waypoints for the API call
+    let waypoints: { latitude: number; longitude: number }[] = [];
+    if (selectedRoute?.paths?.length) {
+      const firstPath = selectedRoute.paths[0];
+      waypoints = [...(firstPath.points || [])]
+        .sort((a, b) => a.order - b.order)
+        .filter((p) => p.isWaypoint)
+        .map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+    }
+
+    const routeResult = await fetchRoute(src, dst, waypoints);
+    setFetchingRoute(false);
+
+    const tripId = generateId();
+    const now = Date.now();
+
+    await startTrip({
+      id: tripId,
       userId: user.id,
       sourceLat: loc.latitude,
       sourceLng: loc.longitude,
@@ -72,13 +96,19 @@ export default function PlanTripScreen() {
       destinationLat: parseFloat(destinationLat),
       destinationLng: parseFloat(destinationLng),
       destinationAddress: destinationAddress.trim(),
-      estimatedDuration: estimatedDuration ? parseInt(estimatedDuration) : undefined,
+      routePolyline: routeResult.encodedPolyline,
+      status: TripStatus.PLANNED,
+      startTime: now,
+      deviationCount: 0,
+      stopCount: 0,
+      alertCount: 0,
       routeId: selectedRoute?.id,
+      estimatedDuration: estimatedDuration ? parseInt(estimatedDuration) : undefined,
+      sharedWithUsers: [],
+      locationUpdates: [],
     });
 
-    if (trip) {
-      router.replace(`/trip/${trip.id}`);
-    }
+    router.replace(`/trip/${tripId}`);
   };
 
   return (
@@ -156,7 +186,7 @@ export default function PlanTripScreen() {
           placeholder="Where are you going?"
           value={destinationAddress}
           onChangeText={setDestinationAddress}
-          leftIcon="location-outline"
+          icon="location-outline"
         />
         <View style={styles.coordRow}>
           <View style={{ flex: 1, marginRight: Spacing.sm }}>
@@ -187,7 +217,7 @@ export default function PlanTripScreen() {
           value={estimatedDuration}
           onChangeText={setEstimatedDuration}
           keyboardType="numeric"
-          leftIcon="time-outline"
+          icon="time-outline"
         />
 
         {/* Summary */}
@@ -217,9 +247,9 @@ export default function PlanTripScreen() {
         </Card>
 
         <Button
-          title="Start Trip"
+          title={fetchingRoute ? 'Calculating Route...' : 'Start Trip'}
           onPress={handleStartTrip}
-          loading={isLoading}
+          loading={isLoading || fetchingRoute}
           icon="navigate"
           style={{ marginTop: Spacing.xl }}
         />
