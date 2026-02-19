@@ -137,8 +137,8 @@ export default function RouteDetailScreen() {
             initialRegion={{
               latitude: (minLat + maxLat) / 2,
               longitude: (minLng + maxLng) / 2,
-              latitudeDelta: (maxLat - minLat) * 1.5 + 0.005,
-              longitudeDelta: (maxLng - minLng) * 1.5 + 0.005,
+              latitudeDelta: (maxLat - minLat) * 1.3 + 0.002,
+              longitudeDelta: (maxLng - minLng) * 1.3 + 0.002,
             }}
             scrollEnabled={false}
             zoomEnabled={false}

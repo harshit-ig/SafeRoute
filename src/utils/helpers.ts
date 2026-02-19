@@ -34,11 +34,25 @@ export async function requestLocationPermission(): Promise<boolean> {
 
 export async function getCurrentLocation() {
   try {
-    const { status } = await Location.getForegroundPermissionsAsync();
+    // Try the global store first (already watching)
+    const { useLocationStore } = require('../stores/locationStore');
+    const coords = useLocationStore.getState().getCoords();
+    if (coords) return coords;
+
+    // Fallback: request permission and get fresh fix
+    const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
 
+    const last = await Location.getLastKnownPositionAsync();
+    if (last) {
+      return {
+        latitude: last.coords.latitude,
+        longitude: last.coords.longitude,
+      };
+    }
+
     const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
+      accuracy: Location.Accuracy.Balanced,
     });
 
     return {

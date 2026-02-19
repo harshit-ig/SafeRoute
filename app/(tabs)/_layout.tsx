@@ -26,6 +26,10 @@ export default function TabsLayout() {
             android: { elevation: 8 },
           }),
         },
+        tabBarItemStyle: {
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
@@ -116,7 +120,9 @@ const styles = StyleSheet.create({
   activeIconContainer: {
     backgroundColor: Colors.primaryFaded,
     borderRadius: BorderRadius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    width: 48,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

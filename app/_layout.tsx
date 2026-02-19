@@ -3,13 +3,16 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, StyleSheet } from 'react-native';
 import { useAuthStore } from '../src/stores/authStore';
+import { useLocationStore } from '../src/stores/locationStore';
 import { Colors } from '../src/constants/theme';
 
 export default function RootLayout() {
-  const initialize = useAuthStore((s) => s.initialize);
+  const initAuth = useAuthStore((s) => s.initialize);
+  const initLocation = useLocationStore((s) => s.initialize);
 
   useEffect(() => {
-    initialize();
+    initAuth();
+    initLocation();
   }, []);
 
   return (

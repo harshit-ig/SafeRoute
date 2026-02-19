@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import { useRouteStore } from '../../src/stores/routeStore';
 import { useAuthStore } from '../../src/stores/authStore';
+import { useLocationStore } from '../../src/stores/locationStore';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 import { generateId } from '../../src/utils/helpers';
 import { fetchRoute, reverseGeocode } from '../../src/utils/maps';
@@ -46,6 +47,8 @@ export default function CreateRouteScreen() {
   const insets = useSafeAreaInsets();
   const { createRoute, isLoading } = useRouteStore();
   const { user } = useAuthStore();
+  const globalLat = useLocationStore((s) => s.latitude);
+  const globalLng = useLocationStore((s) => s.longitude);
   const mapRef = useRef<MapView>(null);
 
   // ── Endpoints (shared by all paths) ──
@@ -65,19 +68,24 @@ export default function CreateRouteScreen() {
   // ── Meta ──
   const [routeName, setRouteName] = useState('');
   const [fetchingRoute, setFetchingRoute] = useState(false);
-  const [userLocation, setUserLocation] = useState<LatLng | null>(null);
   const [locatingUser, setLocatingUser] = useState(false);
 
-  // ─── Get user location on mount ──
+  // Use global location store (already initialized at app start)
+  const userLocation = globalLat != null && globalLng != null
+    ? { latitude: globalLat, longitude: globalLng } as LatLng
+    : null;
+
+  // Auto-center map when location becomes available
+  const hasAnimatedToUser = useRef(false);
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
-      }
-    })();
-  }, []);
+    if (userLocation && !hasAnimatedToUser.current && mapRef.current && step === 'source') {
+      hasAnimatedToUser.current = true;
+      mapRef.current.animateToRegion(
+        { ...userLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 },
+        600,
+      );
+    }
+  }, [userLocation]);
 
   // ─── Recalculate a specific path ──
   const recalcPath = useCallback(async (
@@ -295,8 +303,8 @@ export default function CreateRouteScreen() {
           : '';
 
   const initialRegion: Region = userLocation
-    ? { ...userLocation, latitudeDelta: 0.04, longitudeDelta: 0.04 }
-    : { latitude: 36.75, longitude: 3.06, latitudeDelta: 0.1, longitudeDelta: 0.1 };
+    ? { ...userLocation, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+    : { latitude: 36.75, longitude: 3.06, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
   return (
     <View style={styles.container}>

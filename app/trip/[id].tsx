@@ -21,6 +21,7 @@ import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '..
 import { Trip, TripStatus } from '../../src/types';
 import { formatTime, formatDistance, calculateHaversineDistance } from '../../src/utils/helpers';
 import { getCurrentLocation } from '../../src/utils/helpers';
+import { useLocationStore } from '../../src/stores/locationStore';
 import { decodePolyline, fetchRoute } from '../../src/utils/maps';
 import { LatLng } from 'react-native-maps';
 
@@ -32,16 +33,25 @@ export default function ActiveTripScreen() {
   const user = useAuthStore((s) => s.user);
   const { activeTrip, endTrip, sendSOS, isLoading, loadTripById } = useTripStore();
   const [trip, setTrip] = useState<Trip | null>(null);
+  const globalLat = useLocationStore((s) => s.latitude);
+  const globalLng = useLocationStore((s) => s.longitude);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
   const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
+  // Seed from global store immediately (so initialRegion has data)
+  useEffect(() => {
+    if (globalLat != null && globalLng != null && !currentLocation) {
+      setCurrentLocation({ latitude: globalLat, longitude: globalLng });
+    }
+  }, [globalLat, globalLng]);
+
   useEffect(() => {
     loadTrip();
-    fetchLocation();
-    const interval = setInterval(fetchLocation, 10000);
+    fetchLocation(true);
+    const interval = setInterval(() => fetchLocation(false), 10000);
     return () => clearInterval(interval);
   }, [id]);
 
@@ -90,9 +100,18 @@ export default function ActiveTripScreen() {
     }
   };
 
-  const fetchLocation = async () => {
+  const fetchLocation = async (centerMap = false) => {
     const loc = await getCurrentLocation();
-    if (loc) setCurrentLocation(loc);
+    if (loc) {
+      setCurrentLocation(loc);
+      if (centerMap && mapRef.current) {
+        mapRef.current.animateToRegion({
+          ...loc,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005,
+        }, 500);
+      }
+    }
   };
 
   const handleEndTrip = () => {
@@ -151,8 +170,8 @@ export default function ActiveTripScreen() {
     if (currentLocation && mapRef.current) {
       mapRef.current.animateToRegion({
         ...currentLocation,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
       });
     }
   };
@@ -204,10 +223,10 @@ export default function ActiveTripScreen() {
         ref={mapRef}
         style={styles.map}
         initialRegion={{
-          latitude: (trip.sourceLat + trip.destinationLat) / 2,
-          longitude: (trip.sourceLng + trip.destinationLng) / 2,
-          latitudeDelta: Math.abs(trip.sourceLat - trip.destinationLat) * 1.5 + 0.01,
-          longitudeDelta: Math.abs(trip.sourceLng - trip.destinationLng) * 1.5 + 0.01,
+          latitude: currentLocation?.latitude ?? trip.sourceLat,
+          longitude: currentLocation?.longitude ?? trip.sourceLng,
+          latitudeDelta: 0.005,
+          longitudeDelta: 0.005,
         }}
         showsUserLocation
         showsMyLocationButton={false}
