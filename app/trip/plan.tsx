@@ -66,28 +66,17 @@ export default function PlanTripScreen() {
       return;
     }
 
-    // Fetch road-following route from Directions API
-    setFetchingRoute(true);
+    // Create trip ID and data first
+    const tripId = generateId();
+    const now = Date.now();
     const src = { latitude: loc.latitude, longitude: loc.longitude };
     const dst = { latitude: parseFloat(destinationLat), longitude: parseFloat(destinationLng) };
 
-    // If a saved route is selected, get its first path's waypoints for the API call
-    let waypoints: { latitude: number; longitude: number }[] = [];
-    if (selectedRoute?.paths?.length) {
-      const firstPath = selectedRoute.paths[0];
-      waypoints = [...(firstPath.points || [])]
-        .sort((a, b) => a.order - b.order)
-        .filter((p) => p.isWaypoint)
-        .map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
-    }
-
-    const routeResult = await fetchRoute(src, dst, waypoints);
-    setFetchingRoute(false);
-
-    const tripId = generateId();
-    const now = Date.now();
-
-    await startTrip({
+    // Fetch route in background (don't block navigation)
+    let routePolyline = '';
+    
+    // Start trip immediately with basic data
+    const tripData = {
       id: tripId,
       userId: user.id,
       sourceLat: loc.latitude,
@@ -96,8 +85,8 @@ export default function PlanTripScreen() {
       destinationLat: parseFloat(destinationLat),
       destinationLng: parseFloat(destinationLng),
       destinationAddress: destinationAddress.trim(),
-      routePolyline: routeResult.encodedPolyline,
-      status: TripStatus.PLANNED,
+      routePolyline: routePolyline, // Will be fetched async
+      status: TripStatus.STARTED, // Changed from PLANNED to STARTED
       startTime: now,
       deviationCount: 0,
       stopCount: 0,
@@ -106,9 +95,32 @@ export default function PlanTripScreen() {
       estimatedDuration: estimatedDuration ? parseInt(estimatedDuration) : undefined,
       sharedWithUsers: [],
       locationUpdates: [],
-    });
+    };
 
-    router.replace(`/trip/${tripId}`);
+    try {
+      // Start trip (fast)
+      await startTrip(tripData);
+      
+      // Navigate immediately - don't wait for route
+      router.replace(`/trip/${tripId}`);
+      
+      // Fetch route in background (the trip screen will show it when ready)
+      setFetchingRoute(true);
+      const waypoints: { latitude: number; longitude: number }[] = [];
+      if (selectedRoute?.paths?.length) {
+        const firstPath = selectedRoute.paths[0];
+        waypoints.push(...[...(firstPath.points || [])]
+          .sort((a, b) => a.order - b.order)
+          .filter((p) => p.isWaypoint)
+          .map((p) => ({ latitude: p.latitude, longitude: p.longitude })));
+      }
+      
+      fetchRoute(src, dst, waypoints).finally(() => setFetchingRoute(false));
+      
+    } catch (error) {
+      console.error('Failed to start trip:', error);
+      Alert.alert('Error', 'Failed to start trip. Please try again.');
+    }
   };
 
   return (
@@ -247,9 +259,9 @@ export default function PlanTripScreen() {
         </Card>
 
         <Button
-          title={fetchingRoute ? 'Calculating Route...' : 'Start Trip'}
+          title={isLoading ? 'Starting Trip...' : 'Start Trip'}
           onPress={handleStartTrip}
-          loading={isLoading || fetchingRoute}
+          loading={isLoading}
           icon="navigate"
           style={{ marginTop: Spacing.xl }}
         />

@@ -23,6 +23,7 @@ import { formatTime, formatDistance, calculateHaversineDistance } from '../../sr
 import { getCurrentLocation } from '../../src/utils/helpers';
 import { decodePolyline, fetchRoute } from '../../src/utils/maps';
 import { LatLng } from 'react-native-maps';
+import { useLocationTracking } from '../../src/hooks/useLocationTracking';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -32,17 +33,36 @@ export default function ActiveTripScreen() {
   const user = useAuthStore((s) => s.user);
   const { activeTrip, endTrip, sendSOS, isLoading, loadTripById } = useTripStore();
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isEmergency, setIsEmergency] = useState(false);
   const [routeCoords, setRouteCoords] = useState<LatLng[]>([]);
+  const [untraveledRoute, setUntraveledRoute] = useState<LatLng[]>([]);
   const mapRef = useRef<MapView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
+  // Location tracking hook
+  const {
+    currentLocation,
+    traveledPath,
+    isTracking,
+    distanceTraveled,
+    startTracking,
+    stopTracking,
+  } = useLocationTracking({
+    tripId: id || '',
+    userId: user?.id || '',
+    enabled: trip?.status === TripStatus.STARTED,
+    updateInterval: 15000, // 15 seconds
+    onLocationUpdate: (location) => {
+      // Update untraveled route when location changes
+      updateUntraveledRoute(location);
+    },
+    onError: (error) => {
+      console.error('Location tracking error:', error);
+    },
+  });
+
   useEffect(() => {
     loadTrip();
-    fetchLocation();
-    const interval = setInterval(fetchLocation, 10000);
-    return () => clearInterval(interval);
   }, [id]);
 
   useEffect(() => {
@@ -77,6 +97,7 @@ export default function ActiveTripScreen() {
         const decoded = decodePolyline(t.routePolyline);
         if (decoded.length >= 2) {
           setRouteCoords(decoded);
+          setUntraveledRoute(decoded); // Initially all route is untraveled
           return;
         }
       } catch {}
@@ -87,12 +108,34 @@ export default function ActiveTripScreen() {
     const result = await fetchRoute(src, dst);
     if (result.coords.length >= 2) {
       setRouteCoords(result.coords);
+      setUntraveledRoute(result.coords);
     }
   };
 
-  const fetchLocation = async () => {
-    const loc = await getCurrentLocation();
-    if (loc) setCurrentLocation(loc);
+  // Find closest point on route and split into traveled/untraveled
+  const updateUntraveledRoute = (currentLoc: LatLng) => {
+    if (routeCoords.length < 2) return;
+
+    let minDistance = Infinity;
+    let closestIndex = 0;
+
+    // Find closest point on the route
+    routeCoords.forEach((coord, index) => {
+      const distance = calculateHaversineDistance(
+        currentLoc.latitude,
+        currentLoc.longitude,
+        coord.latitude,
+        coord.longitude
+      );
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    // Update untraveled route (from closest point to destination)
+    const remaining = routeCoords.slice(closestIndex);
+    setUntraveledRoute(remaining);
   };
 
   const handleEndTrip = () => {
@@ -102,6 +145,7 @@ export default function ActiveTripScreen() {
         text: 'End Trip',
         onPress: async () => {
           if (trip) {
+            await stopTracking(); // Stop location tracking
             await endTrip(trip.id);
             router.replace('/(tabs)/home');
           }
@@ -172,6 +216,17 @@ export default function ActiveTripScreen() {
       )
     : null;
 
+  // Calculate progress percentage
+  const totalDistance = calculateHaversineDistance(
+    trip.sourceLat,
+    trip.sourceLng,
+    trip.destinationLat,
+    trip.destinationLng
+  );
+  const progressPercent = remainingDist !== null 
+    ? Math.min(100, Math.max(0, ((totalDistance - remainingDist) / totalDistance) * 100))
+    : 0;
+
   const statusColor = isEmergency
     ? Colors.dangerRed
     : trip.status === TripStatus.STARTED
@@ -183,7 +238,9 @@ export default function ActiveTripScreen() {
   const statusLabel = isEmergency
     ? '🚨 Emergency Mode'
     : trip.status === TripStatus.STARTED
-    ? '✓ On Route'
+    ? isTracking
+      ? '✓ On Route (Tracking)'
+      : '✓ On Route'
     : trip.status === TripStatus.COMPLETED
     ? '✓ Trip Completed'
     : 'Trip Planned';
@@ -215,24 +272,55 @@ export default function ActiveTripScreen() {
         <Marker coordinate={source} title="Start" pinColor="green" />
         <Marker coordinate={destination} title="Destination" pinColor="red" />
         {currentLocation && (
-          <Marker coordinate={currentLocation} title="You">
+          <Marker coordinate={currentLocation} title="You" anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.currentLocMarker}>
               <View style={styles.currentLocDot} />
             </View>
           </Marker>
         )}
+        
+        {/* Route Visualization: Gray (traveled) + Blue (untraveled) */}
         {routeCoords.length >= 2 && (
           <>
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor={Colors.primary + '35'}
-              strokeWidth={8}
-            />
-            <Polyline
-              coordinates={routeCoords}
-              strokeColor={Colors.primary}
-              strokeWidth={4}
-            />
+            {/* Traveled path - Grey */}
+            {traveledPath.length >= 2 && (
+              <>
+                <Polyline
+                  coordinates={traveledPath}
+                  strokeColor={'rgba(128, 128, 128, 0.3)'}
+                  strokeWidth={8}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                <Polyline
+                  coordinates={traveledPath}
+                  strokeColor={'#808080'}
+                  strokeWidth={4}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              </>
+            )}
+            
+            {/* Untraveled route - Blue */}
+            {untraveledRoute.length >= 2 && (
+              <>
+                <Polyline
+                  coordinates={untraveledRoute}
+                  strokeColor={Colors.primary + '35'}
+                  strokeWidth={8}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                <Polyline
+                  coordinates={untraveledRoute}
+                  strokeColor={Colors.primary}
+                  strokeWidth={4}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              </>
+            )}
           </>
         )}
       </MapView>
@@ -243,6 +331,17 @@ export default function ActiveTripScreen() {
           <Text style={styles.destText} numberOfLines={1}>
             📍 {trip.destinationAddress}
           </Text>
+          
+          {/* Progress Bar */}
+          {trip.status === TripStatus.STARTED && (
+            <View style={styles.progressContainer}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+              </View>
+              <Text style={styles.progressText}>{Math.round(progressPercent)}% complete</Text>
+            </View>
+          )}
+          
           <View style={styles.infoRow}>
             {trip.estimatedDuration && (
               <View style={styles.infoItem}>
@@ -256,9 +355,15 @@ export default function ActiveTripScreen() {
                 <Text style={styles.infoValue}>{formatDistance(remainingDist)}</Text>
               </View>
             )}
+            {distanceTraveled > 0 && (
+              <View style={styles.infoItem}>
+                <Ionicons name="footsteps-outline" size={16} color={Colors.primary} />
+                <Text style={styles.infoValue}>{formatDistance(distanceTraveled / 1000)}</Text>
+              </View>
+            )}
             <View style={styles.infoItem}>
               <Ionicons name="warning-outline" size={16} color={Colors.warningOrange} />
-              <Text style={styles.infoValue}>{trip.deviationCount} deviations</Text>
+              <Text style={styles.infoValue}>{trip.deviationCount}</Text>
             </View>
           </View>
         </Card>
@@ -361,6 +466,26 @@ const styles = StyleSheet.create({
     fontWeight: FontWeight.semibold,
     color: Colors.dark.text,
     marginBottom: Spacing.md,
+  },
+  progressContainer: {
+    marginBottom: Spacing.md,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: Colors.dark.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: Spacing.xs,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.safeGreen,
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: FontSize.xs,
+    color: Colors.dark.textMuted,
+    textAlign: 'center',
   },
   infoRow: {
     flexDirection: 'row',

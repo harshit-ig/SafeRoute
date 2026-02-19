@@ -1,6 +1,9 @@
 const Trip = require('../models/Trip');
 const User = require('../models/User');
 const { asyncHandler } = require('../middlewares/errorMiddleware');
+const locationTrackingService = require('../services/locationTrackingService');
+const twilioService = require('../services/twilioService');
+const { CircleMember } = require('../models/SafeCircle');
 
 /**
  * @desc    Start a new trip
@@ -78,12 +81,40 @@ const startTrip = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error('Invalid trip data');
   }
+
+  // Start location tracking for this trip
+  await locationTrackingService.startLocationTracking(trip.id, userId);
+
+  // Notify circle members that trip has started
+  if (user.groupCode) {
+    try {
+      const memberDocs = await CircleMember.find({ groupCode: user.groupCode });
+      const memberIds = memberDocs.map(m => m.userId).filter(id => id !== userId);
+      const members = await User.find({ id: { $in: memberIds } });
+
+      const tripData = {
+        userName: user.name,
+        status: 'started',
+        sourceAddress,
+        destinationAddress
+      };
+
+      // Send notifications to circle members
+      members.forEach(member => {
+        twilioService.sendTripUpdate(member.phone, tripData)
+          .catch(err => console.error(`Failed to notify ${member.phone}:`, err));
+      });
+    } catch (error) {
+      console.error('Error notifying circle members:', error);
+    }
+  }
   
   res.status(201).json({
     id: trip.id,
     userId: trip.userId,
     status: trip.status,
-    message: 'Trip started successfully'
+    message: 'Trip started successfully',
+    trackingEnabled: true
   });
 });
 
@@ -108,12 +139,40 @@ const completeTrip = asyncHandler(async (req, res) => {
   trip.status = 'COMPLETED';
   trip.endTime = new Date();
   await trip.save();
+
+  // Stop location tracking
+  locationTrackingService.stopLocationTracking(trip.id);
+
+  // Notify circle members that trip completed safely
+  const user = await User.findOne({ id: trip.userId });
+  if (user && user.groupCode) {
+    try {
+      const memberDocs = await CircleMember.find({ groupCode: user.groupCode });
+      const memberIds = memberDocs.map(m => m.userId).filter(id => id !== trip.userId);
+      const members = await User.find({ id: { $in: memberIds } });
+
+      const tripData = {
+        userName: user.name,
+        status: 'completed',
+        destinationAddress: trip.destinationAddress
+      };
+
+      // Send notifications
+      members.forEach(member => {
+        twilioService.sendTripUpdate(member.phone, tripData)
+          .catch(err => console.error(`Failed to notify ${member.phone}:`, err));
+      });
+    } catch (error) {
+      console.error('Error notifying circle members:', error);
+    }
+  }
   
   res.status(200).json({
     id: trip.id,
     userId: trip.userId,
     status: trip.status,
-    message: 'Trip completed successfully'
+    message: 'Trip completed successfully',
+    trackingStopped: true
   });
 });
 

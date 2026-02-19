@@ -15,6 +15,7 @@ import { useTripStore } from '../../src/stores/tripStore';
 import { useCircleStore } from '../../src/stores/circleStore';
 import Card from '../../src/components/Card';
 import QuickAction from '../../src/components/QuickAction';
+import TrackingStatsCard from '../../src/components/TrackingStatsCard';
 import { Colors, FontSize, FontWeight, Spacing, BorderRadius, Shadows } from '../../src/constants/theme';
 import { TripStatus } from '../../src/types';
 import { formatTime } from '../../src/utils/helpers';
@@ -152,6 +153,14 @@ export default function HomeScreen() {
             onPress={() => router.push('/(tabs)/routes')}
           />
         </View>
+
+        {/* Tracking Stats */}
+        {!activeTrip && (
+          <>
+            <Text style={styles.sectionTitle}>Your Activity</Text>
+            <TrackingStatsCard onRefresh={onRefresh} />
+          </>
+        )}
 
         {/* No Active Trip CTA */}
         {!activeTrip && (

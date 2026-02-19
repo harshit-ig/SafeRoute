@@ -40,7 +40,9 @@ export interface Trip {
   estimatedDuration?: number;
   estimatedDistance?: number;
   sharedWithUsers: string[];
-  locationUpdates: Array<{ latitude: number; longitude: number }>;
+  locationUpdates: Array<{ latitude: number; longitude: number; timestamp?: number }>;
+  traveledPath?: Array<{ latitude: number; longitude: number }>; // Path user has traveled
+  currentProgress?: number; // Progress percentage (0-100)
 }
 
 // ==================== Alert ====================

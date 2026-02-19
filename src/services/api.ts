@@ -156,4 +156,68 @@ export const routeApi = {
     api.delete(`/routes/${routeId}`),
 };
 
+// ==================== Location API ====================
+export const locationApi = {
+  // Current location endpoints (uses authenticated user)
+  getCurrentLocation: () =>
+    api.get('/location/current'),
+
+  updateCurrentLocation: (data: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    speed?: number;
+    heading?: number;
+    altitude?: number;
+    batteryLevel?: number;
+  }) => api.post('/location/current', data),
+
+  // Trip tracking
+  trackLocation: (data: {
+    tripId: string;
+    userId: string;
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+    speed?: number;
+    heading?: number;
+    altitude?: number;
+    timestamp?: string;
+    batteryLevel?: number;
+    isMoving?: boolean;
+  }) => api.post('/location/track', data),
+
+  startTracking: (tripId: string, userId: string) =>
+    api.post('/location/start-tracking', { tripId, userId }),
+
+  stopTracking: (tripId: string) =>
+    api.post('/location/stop-tracking', { tripId }),
+
+  // Location history
+  getTripLocationHistory: (tripId: string, params?: {
+    limit?: number;
+    startTime?: string;
+    endTime?: string;
+  }) => api.get(`/location/trip/${tripId}`, { params }),
+
+  getLatestUserLocation: (userId: string) =>
+    api.get(`/location/user/${userId}/latest`),
+
+  // Emergency and sharing
+  sendSOS: (data: {
+    userId: string;
+    tripId?: string;
+    latitude: number;
+    longitude: number;
+    message?: string;
+  }) => api.post('/location/sos', data),
+
+  shareLiveLocation: (userId: string, tripId: string) =>
+    api.post('/location/share', { userId, tripId }),
+
+  // Statistics
+  getTrackingStats: () =>
+    api.get('/location/stats'),
+};
+
 export default api;

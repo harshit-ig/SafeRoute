@@ -7,10 +7,26 @@ import { Colors } from '../src/constants/theme';
 
 export default function RootLayout() {
   const initialize = useAuthStore((s) => s.initialize);
+  const isInitialized = useAuthStore((s) => s.isInitialized);
 
   useEffect(() => {
-    initialize();
+    console.log('[RootLayout] Component mounted, starting initialization');
+    
+    // Add a timeout fallback
+    const timeout = setTimeout(() => {
+      console.log('[RootLayout] Initialization timeout - forcing initialized state');
+      useAuthStore.setState({ isInitialized: true });
+    }, 5000); // 5 second timeout
+
+    initialize().finally(() => {
+      clearTimeout(timeout);
+      console.log('[RootLayout] Initialization complete');
+    });
+
+    return () => clearTimeout(timeout);
   }, []);
+
+  console.log('[RootLayout] Render - isInitialized:', isInitialized);
 
   return (
     <View style={styles.container}>

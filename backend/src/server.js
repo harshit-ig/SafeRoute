@@ -14,6 +14,7 @@ const tripRoutes = require('./routes/tripRoutes');
 const alertRoutes = require('./routes/alertRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const routeRoutes = require('./routes/routeRoutes');
+const locationRoutes = require('./routes/locationRoutes');
 
 // Initialize Express app
 const app = express();
@@ -75,6 +76,7 @@ app.use('/api/trips', tripRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/routes', routeRoutes);
+app.use('/api/location', locationRoutes);
 
 // Default route
 app.get('/', (req, res) => {

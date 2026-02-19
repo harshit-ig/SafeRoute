@@ -1,11 +1,25 @@
 const twilio = require('twilio');
 require('dotenv').config();
 
-// Initialize Twilio client with credentials from environment variables
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+// Check if Twilio is configured
+const isTwilioConfigured = () => {
+  return process.env.TWILIO_ACCOUNT_SID && 
+         process.env.TWILIO_AUTH_TOKEN &&
+         process.env.TWILIO_ACCOUNT_SID.startsWith('AC');
+};
+
+// Initialize Twilio client only if credentials are properly configured
+let client = null;
+if (isTwilioConfigured()) {
+  client = twilio(
+    process.env.TWILIO_ACCOUNT_SID,
+    process.env.TWILIO_AUTH_TOKEN
+  );
+  console.log('✓ Twilio client initialized successfully');
+} else {
+  console.warn('⚠️  Twilio not configured. WhatsApp/SMS features will be disabled.');
+  console.warn('   Please update TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in .env file');
+}
 
 /**
  * Send a WhatsApp message using Twilio
@@ -14,6 +28,14 @@ const client = twilio(
  * @returns {Promise<object>} - Message SID and status
  */
 const sendWhatsAppMessage = async (to, body) => {
+  if (!client) {
+    console.warn('Twilio not configured - skipping WhatsApp message');
+    return {
+      success: false,
+      error: 'Twilio not configured'
+    };
+  }
+
   try {
     // Clean up the phone number to ensure it's in E.164 format
     const cleanTo = to.startsWith('+') ? to : `+${to}`;
@@ -48,6 +70,14 @@ const sendWhatsAppMessage = async (to, body) => {
  * @returns {Promise<object>} - Message SID and status
  */
 const sendSMS = async (to, body) => {
+  if (!client) {
+    console.warn('Twilio not configured - skipping SMS');
+    return {
+      success: false,
+      error: 'Twilio not configured'
+    };
+  }
+
   try {
     // Clean up the phone number to ensure it's in E.164 format
     const cleanTo = to.startsWith('+') ? to : `+${to}`;
@@ -236,6 +266,80 @@ const sendTripUpdate = async (to, trip) => {
   }
 };
 
+/**
+ * Send live location update via WhatsApp
+ * @param {string} to - Recipient phone number
+ * @param {object} locationData - Location details
+ * @returns {Promise<object>} - Promise with message details or error
+ */
+const sendLiveLocationUpdate = async (to, locationData) => {
+  try {
+    const { userName, latitude, longitude, speed, timestamp, batteryLevel } = locationData;
+    
+    const mapsLink = `https://maps.google.com/?q=${latitude},${longitude}`;
+    const speedKmh = speed ? (speed * 3.6).toFixed(1) : '0.0';
+    const time = new Date(timestamp).toLocaleTimeString();
+    const battery = batteryLevel ? `${batteryLevel}%` : 'Unknown';
+    
+    const message = `📍 Live Location Update - SafeRoute\n\n` +
+      `👤 ${userName}\n` +
+      `📌 Location: ${mapsLink}\n` +
+      `🚗 Speed: ${speedKmh} km/h\n` +
+      `🔋 Battery: ${battery}\n` +
+      `🕐 Time: ${time}\n\n` +
+      `Click the link to view on map.`;
+    
+    return await sendWhatsAppMessage(to, message);
+  } catch (error) {
+    console.error(`Failed to send live location update to ${to}:`, error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
+/**
+ * Send periodic location update during active trip
+ * @param {string} to - Recipient phone number
+ * @param {object} locationData - Location and trip details
+ * @returns {Promise<object>} - Promise with message details or error
+ */
+const sendPeriodicLocationUpdate = async (to, locationData) => {
+  try {
+    const { 
+      userName, 
+      latitude, 
+      longitude, 
+      speed, 
+      timestamp, 
+      destination,
+      estimatedTimeRemaining 
+    } = locationData;
+    
+    const mapsLink = `https://maps.google.com/?q=${latitude},${longitude}`;
+    const speedKmh = speed ? (speed * 3.6).toFixed(1) : '0.0';
+    const time = new Date(timestamp).toLocaleTimeString();
+    const eta = estimatedTimeRemaining || 'Calculating...';
+    
+    const message = `🛣️ Trip Progress Update\n\n` +
+      `${userName} is on the way to ${destination || 'destination'}\n\n` +
+      `📍 Current Location: ${mapsLink}\n` +
+      `🚗 Speed: ${speedKmh} km/h\n` +
+      `⏱️ ETA: ${eta}\n` +
+      `🕐 Last Update: ${time}\n\n` +
+      `Everything looks good! 👍`;
+    
+    return await sendWhatsAppMessage(to, message);
+  } catch (error) {
+    console.error(`Failed to send periodic location update to ${to}:`, error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
 module.exports = {
   sendWhatsAppMessage,
   sendSMS,
@@ -243,5 +347,7 @@ module.exports = {
   sendCancellationMessage,
   sendDailySummary,
   sendEmergencyAlert,
-  sendTripUpdate
+  sendTripUpdate,
+  sendLiveLocationUpdate,
+  sendPeriodicLocationUpdate
 }; 

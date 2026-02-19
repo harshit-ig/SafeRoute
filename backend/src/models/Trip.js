@@ -61,6 +61,12 @@ const tripSchema = new mongoose.Schema({
   alertCount: {
     type: Number,
     default: 0
+  },
+  lastLocationUpdate: {
+    type: Date
+  },
+  lastNotificationSent: {
+    type: Date
   }
 }, {
   timestamps: true

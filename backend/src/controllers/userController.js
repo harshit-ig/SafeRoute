@@ -21,24 +21,24 @@ const registerUser = async (req, res) => {
   try {
     const { id, name, phone, email, password } = req.body;
 
+    // Validate required fields
+    if (!id || !name || !phone || !password) {
+      return res.status(400).json({ message: 'Please provide all required fields' });
+    }
+
     // Check if user already exists
     const userExists = await User.findOne({ phone });
     if (userExists) {
-      res.status(400);
-      throw new Error('User already exists');
+      return res.status(400).json({ message: 'User already exists with this phone number' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Create user
+    // Create user (password will be hashed by the model's pre-save middleware)
     const user = await User.create({
       id,
       name,
       phone,
       email,
-      password: hashedPassword
+      password
     });
 
     if (user) {
@@ -54,8 +54,7 @@ const registerUser = async (req, res) => {
         token
       });
     } else {
-      res.status(400);
-      throw new Error('Invalid user data');
+      res.status(400).json({ message: 'Invalid user data' });
     }
   } catch (error) {
     console.error('Registration error:', error.message);

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Trip, TripStatus, TripResponse, Alert, AlertType } from '../types';
-import { tripApi, alertApi } from '../services/api';
+import { tripApi, alertApi, locationApi } from '../services/api';
 import { generateId } from '../utils/helpers';
 
 interface TripState {
@@ -9,6 +9,12 @@ interface TripState {
   currentAlerts: Alert[];
   isLoading: boolean;
   error: string | null;
+  trackingStats: {
+    totalTrips: number;
+    totalDistance: number;
+    averageSpeed: number;
+    lastUpdated: string | null;
+  } | null;
 
   loadActiveTrip: (userId: string) => Promise<void>;
   loadTripHistory: (userId: string) => Promise<void>;
@@ -17,8 +23,11 @@ interface TripState {
   endTrip: (tripId: string) => Promise<void>;
   cancelTrip: (tripId: string) => Promise<void>;
   sendSOS: (tripId: string, userId: string, lat: number, lng: number, description: string) => Promise<void>;
+  sendSOSWithLocation: (userId: string, tripId: string | undefined, message?: string) => Promise<void>;
   cancelSOS: (alertId: string) => Promise<void>;
   loadTripAlerts: (tripId: string) => Promise<void>;
+  loadTrackingStats: () => Promise<void>;
+  getTripLocationHistory: (tripId: string, limit?: number) => Promise<any[]>;
   clearError: () => void;
 }
 
@@ -50,6 +59,7 @@ export const useTripStore = create<TripState>((set, get) => ({
   currentAlerts: [],
   isLoading: false,
   error: null,
+  trackingStats: null,
 
   loadActiveTrip: async (userId: string) => {
     try {
@@ -86,7 +96,7 @@ export const useTripStore = create<TripState>((set, get) => ({
   startTrip: async (trip: Trip) => {
     set({ isLoading: true, error: null });
     try {
-      await tripApi.startTrip({
+      const response = await tripApi.startTrip({
         id: trip.id,
         userId: trip.userId,
         sourceLatitude: trip.sourceLat,
@@ -98,18 +108,35 @@ export const useTripStore = create<TripState>((set, get) => ({
         routePolyline: trip.routePolyline,
         startTime: new Date(trip.startTime).toISOString(),
       });
-      set({ activeTrip: { ...trip, status: TripStatus.STARTED }, isLoading: false });
+      
+      const startedTrip = { ...trip, status: TripStatus.STARTED };
+      set({ activeTrip: startedTrip, isLoading: false });
+      
+      // Auto-start location tracking on backend (async, don't wait)
+      locationApi.startTracking(trip.id, trip.userId)
+        .then(() => console.log('Location tracking started for trip:', trip.id))
+        .catch((err) => console.error('Failed to start location tracking:', err));
+        
     } catch (err: any) {
       set({
         error: err.response?.data?.message || 'Failed to start trip',
         isLoading: false,
       });
+      throw err; // Re-throw to handle in UI
     }
   },
 
   endTrip: async (tripId: string) => {
     set({ isLoading: true });
     try {
+      // Stop location tracking first
+      try {
+        await locationApi.stopTracking(tripId);
+        console.log('Location tracking stopped for trip:', tripId);
+      } catch (err) {
+        console.error('Failed to stop location tracking:', err);
+      }
+      
       await tripApi.completeTrip(tripId, {
         endTime: new Date().toISOString(),
         status: 'COMPLETED',
@@ -147,8 +174,39 @@ export const useTripStore = create<TripState>((set, get) => ({
         timestamp: new Date().toISOString(),
         description,
       });
+      
+      // Also send via location API for WhatsApp integration
+      try {
+        await locationApi.sendSOS({
+          userId,
+          tripId,
+          latitude: lat,
+          longitude: lng,
+          message: description,
+        });
+        console.log('SOS sent with location tracking integration');
+      } catch (err) {
+        console.error('Failed to send SOS via location API:', err);
+      }
     } catch (err: any) {
       set({ error: 'Failed to send SOS alert' });
+    }
+  },
+
+  sendSOSWithLocation: async (userId: string, tripId: string | undefined, message?: string) => {
+    try {
+      // Use location API which handles current location automatically
+      await locationApi.sendSOS({
+        userId,
+        tripId,
+        latitude: 0, // Backend will use current location
+        longitude: 0,
+        message: message || 'Emergency SOS - Help needed!',
+      });
+      console.log('SOS alert sent successfully');
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || 'Failed to send SOS alert' });
+      throw err;
     }
   },
 
@@ -176,6 +234,25 @@ export const useTripStore = create<TripState>((set, get) => ({
       }));
       set({ currentAlerts: alerts });
     } catch {}
+  },
+
+  loadTrackingStats: async () => {
+    try {
+      const response = await locationApi.getTrackingStats();
+      set({ trackingStats: response.data });
+    } catch (err) {
+      console.error('Failed to load tracking stats:', err);
+    }
+  },
+
+  getTripLocationHistory: async (tripId: string, limit?: number) => {
+    try {
+      const response = await locationApi.getTripLocationHistory(tripId, { limit });
+      return response.data.locations || [];
+    } catch (err) {
+      console.error('Failed to load trip location history:', err);
+      return [];
+    }
   },
 
   clearError: () => set({ error: null }),

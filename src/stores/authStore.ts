@@ -38,23 +38,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
 
   initialize: async () => {
+    console.log('[AuthStore] Initializing...');
     try {
       const savedUser = await storage.getUser();
+      console.log('[AuthStore] Saved user:', savedUser ? 'Found' : 'Not found');
+      
       if (savedUser) {
         set({ user: savedUser, isInitialized: true });
+        console.log('[AuthStore] User restored from storage');
+        
         // Try refreshing from server
         try {
           const response = await userApi.getMe();
           const freshUser = mapResponseToUser(response.data);
           await storage.saveUser(freshUser);
           set({ user: freshUser });
-        } catch {
+          console.log('[AuthStore] User refreshed from server');
+        } catch (err) {
+          console.log('[AuthStore] Could not refresh user from server, keeping local user');
           // Keep local user
         }
       } else {
         set({ isInitialized: true });
+        console.log('[AuthStore] No saved user, initialization complete');
       }
-    } catch {
+    } catch (err) {
+      console.error('[AuthStore] Initialize error:', err);
       set({ isInitialized: true });
     }
   },

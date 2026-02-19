@@ -68,14 +68,52 @@ export default function CreateRouteScreen() {
   const [userLocation, setUserLocation] = useState<LatLng | null>(null);
   const [locatingUser, setLocatingUser] = useState(false);
 
-  // ─── Get user location on mount ──
+  // ─── Get user location on mount and auto-set as source ──
   useEffect(() => {
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setUserLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      setLocatingUser(true);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ 
+            accuracy: Location.Accuracy.High,
+          });
+          const coords: LatLng = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+          setUserLocation(coords);
+          
+          // Automatically set as source
+          setSource(coords);
+          const address = await reverseGeocode(coords.latitude, coords.longitude);
+          setSourceLabel(address || 'Current Location');
+          setStep('destination'); // Move to destination step
+          
+          // Animate map to current location
+          setTimeout(() => {
+            mapRef.current?.animateToRegion({
+              ...coords,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            }, 500);
+          }, 300);
+        } else {
+          // Permission denied - show alert and let user tap on map
+          Alert.alert(
+            'Location Permission Required',
+            'Please enable location access to automatically detect your starting point, or tap on the map to set it manually.',
+            [{ text: 'OK' }]
+          );
+          setStep('source'); // Stay on source step
+        }
+      } catch (error) {
+        console.error('Error getting location:', error);
+        Alert.alert(
+          'Location Error',
+          'Could not detect your location. Please tap on the map to set your starting point.',
+          [{ text: 'OK' }]
+        );
+        setStep('source'); // Stay on source step
       }
+      setLocatingUser(false);
     })();
   }, []);
 
@@ -288,9 +326,10 @@ export default function CreateRouteScreen() {
   const activePath = paths[activePathIdx];
   const canTapMap = step === 'source' || step === 'destination' || (step === 'paths' && addingWaypoint);
 
-  const instructionText =
-    step === 'source' ? 'Tap the map to set your starting point'
-      : step === 'destination' ? 'Now tap to set your destination'
+  const instructionText = locatingUser 
+    ? '📍 Detecting your current location...'
+    : step === 'source' ? 'Tap the map to set your starting point'
+      : step === 'destination' ? '✓ Source set • Now tap to set your destination'
         : addingWaypoint ? `Tap to add a stop on ${activePath.name}`
           : '';
 
@@ -483,7 +522,7 @@ export default function CreateRouteScreen() {
             {fetchingRoute ? (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={activePath.color} size="small" />
-                <Text style={styles.loadingText}>Finding route...</Text>
+                <Text style={styles.loadingRouteText}>Finding route...</Text>
               </View>
             ) : activePath.distance ? (
               <View style={[styles.routeStats, { borderColor: activePath.color + '30' }]}>
@@ -552,6 +591,17 @@ export default function CreateRouteScreen() {
           </View>
         )}
       </View>
+
+      {/* ── Loading Overlay (Initial Location Detection) ── */}
+      {locatingUser && step === 'source' && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>Detecting your location...</Text>
+            <Text style={styles.loadingSubtext}>This will be your starting point</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -678,7 +728,7 @@ const styles = StyleSheet.create({
 
   // Route stats
   loadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, gap: 8 },
-  loadingText: { fontSize: FontSize.sm, color: Colors.dark.textSecondary },
+  loadingRouteText: { fontSize: FontSize.sm, color: Colors.dark.textSecondary },
   routeStats: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.md,
@@ -710,4 +760,38 @@ const styles = StyleSheet.create({
     paddingVertical: 15, gap: 8, ...Shadows.md,
   },
   saveBtnText: { fontSize: FontSize.md, fontWeight: FontWeight.bold, color: Colors.white },
+
+  // Loading overlay
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+  },
+  loadingCard: {
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xxxl,
+    alignItems: 'center',
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    ...Shadows.lg,
+  },
+  loadingText: {
+    fontSize: FontSize.md,
+    fontWeight: FontWeight.semibold,
+    color: Colors.dark.text,
+    marginTop: Spacing.sm,
+  },
+  loadingSubtext: {
+    fontSize: FontSize.sm,
+    color: Colors.dark.textMuted,
+    textAlign: 'center',
+  },
 });
