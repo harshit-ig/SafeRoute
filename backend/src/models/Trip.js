@@ -39,6 +39,14 @@ const tripSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  alternativePolylines: {
+    type: [String],
+    default: []
+  },
+  activeRouteIndex: {
+    type: Number,
+    default: 0
+  },
   status: {
     type: String,
     enum: ['PLANNED', 'ACTIVE', 'COMPLETED', 'CANCELLED'],
@@ -61,6 +69,43 @@ const tripSchema = new mongoose.Schema({
   alertCount: {
     type: Number,
     default: 0
+  },
+  // ─── Live tracking fields ───
+  lastLatitude: {
+    type: Number,
+    default: null
+  },
+  lastLongitude: {
+    type: Number,
+    default: null
+  },
+  lastLocationTime: {
+    type: Date,
+    default: null
+  },
+  routeProgressIndex: {
+    type: Number,
+    default: 0
+  },
+  isDeviated: {
+    type: Boolean,
+    default: false
+  },
+  hasJoinedRoute: {
+    type: Boolean,
+    default: false
+  },
+  distanceFromRoute: {
+    type: Number,
+    default: 0
+  },
+  estimatedDuration: {
+    type: Number,
+    default: null
+  },
+  estimatedDistance: {
+    type: Number,
+    default: null
   }
 }, {
   timestamps: true

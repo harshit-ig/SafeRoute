@@ -3,6 +3,22 @@ import { Trip, TripStatus, TripResponse, Alert, AlertType } from '../types';
 import { tripApi, alertApi } from '../services/api';
 import { generateId } from '../utils/helpers';
 
+interface LocationUpdateResult {
+  progressIndex: number;
+  isDeviated: boolean;
+  isGoingBackward: boolean;
+  hasJoinedRoute: boolean;
+  distanceFromRoute: number;
+  threshold: number;
+  remainingDistance: number;
+  etaSeconds: number;
+  deviationCount: number;
+  totalPoints: number;
+  activeRouteIndex: number;
+  tripCompleted?: boolean;
+  distanceToDestination?: number;
+}
+
 interface TripState {
   activeTrip: Trip | null;
   tripHistory: Trip[];
@@ -16,10 +32,17 @@ interface TripState {
   startTrip: (trip: Trip) => Promise<void>;
   endTrip: (tripId: string) => Promise<void>;
   cancelTrip: (tripId: string) => Promise<void>;
+  updateLocation: (tripId: string, latitude: number, longitude: number) => Promise<LocationUpdateResult | null>;
   sendSOS: (tripId: string, userId: string, lat: number, lng: number, description: string) => Promise<void>;
   cancelSOS: (alertId: string) => Promise<void>;
   loadTripAlerts: (tripId: string) => Promise<void>;
   clearError: () => void;
+}
+
+// Backend uses 'ACTIVE' but frontend enum uses 'STARTED'
+function normalizeStatus(status: string): TripStatus {
+  if (status === 'ACTIVE') return TripStatus.STARTED;
+  return (status as TripStatus) || TripStatus.PLANNED;
 }
 
 function mapTripResponse(t: TripResponse): Trip {
@@ -33,12 +56,15 @@ function mapTripResponse(t: TripResponse): Trip {
     sourceAddress: t.sourceAddress,
     destinationAddress: t.destinationAddress,
     routePolyline: t.routePolyline || '',
-    status: t.status as TripStatus,
+    alternativePolylines: t.alternativePolylines || [],
+    status: normalizeStatus(t.status),
     startTime: new Date(t.startTime).getTime(),
     endTime: t.endTime ? new Date(t.endTime).getTime() : undefined,
     deviationCount: t.deviationCount || 0,
     stopCount: t.stopCount || 0,
     alertCount: t.alertCount || 0,
+    estimatedDuration: (t as any).estimatedDuration,
+    estimatedDistance: (t as any).estimatedDistance,
     sharedWithUsers: [],
     locationUpdates: [],
   };
@@ -96,14 +122,14 @@ export const useTripStore = create<TripState>((set, get) => ({
         sourceAddress: trip.sourceAddress,
         destinationAddress: trip.destinationAddress,
         routePolyline: trip.routePolyline,
+        alternativePolylines: trip.alternativePolylines || [],
         startTime: new Date(trip.startTime).toISOString(),
       });
       set({ activeTrip: { ...trip, status: TripStatus.STARTED }, isLoading: false });
     } catch (err: any) {
-      set({
-        error: err.response?.data?.message || 'Failed to start trip',
-        isLoading: false,
-      });
+      const msg = err.response?.data?.message || 'Failed to start trip';
+      set({ error: msg, isLoading: false });
+      throw new Error(msg);
     }
   },
 
@@ -132,6 +158,15 @@ export const useTripStore = create<TripState>((set, get) => ({
         activeTrip: state.activeTrip?.id === tripId ? null : state.activeTrip,
       }));
     } catch {}
+  },
+
+  updateLocation: async (tripId: string, latitude: number, longitude: number) => {
+    try {
+      const res = await tripApi.updateLocation(tripId, { latitude, longitude });
+      return res.data as LocationUpdateResult;
+    } catch {
+      return null;
+    }
   },
 
   sendSOS: async (tripId: string, userId: string, lat: number, lng: number, description: string) => {

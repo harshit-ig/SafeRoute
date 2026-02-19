@@ -30,6 +30,7 @@ export interface Trip {
   sourceAddress: string;
   destinationAddress: string;
   routePolyline: string;
+  alternativePolylines?: string[];
   status: TripStatus;
   startTime: number;
   endTime?: number;
@@ -169,6 +170,7 @@ export interface TripResponse {
   sourceAddress: string;
   destinationAddress: string;
   routePolyline?: string;
+  alternativePolylines?: string[];
   status: string;
   startTime: string;
   endTime?: string;

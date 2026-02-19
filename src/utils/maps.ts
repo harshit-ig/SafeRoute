@@ -109,6 +109,117 @@ export async function fetchRoute(
   return { coords: [], distance: '', duration: '', encodedPolyline: '' };
 }
 
+// ─── Fetch ALL alternative routes from Directions API ────────
+export interface AllRoutesResult {
+  primary: RouteResult;
+  alternatives: string[]; // encoded polylines for alternative routes
+}
+
+export async function fetchAllRoutes(
+  origin: LatLng,
+  destination: LatLng,
+  waypoints: LatLng[] = [],
+): Promise<AllRoutesResult> {
+  const empty: AllRoutesResult = {
+    primary: { coords: [], distance: '', duration: '', encodedPolyline: '' },
+    alternatives: [],
+  };
+  try {
+    // ── 1. Build primary route URL (with waypoints if any) ──
+    let primaryUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=driving&key=${ENV.MAPS_API_KEY}`;
+    if (waypoints.length > 0) {
+      const wp = waypoints.map((w) => `${w.latitude},${w.longitude}`).join('|');
+      primaryUrl += `&waypoints=${wp}`;
+    }
+    // Always request alternatives (works only when NO waypoints are present)
+    const altUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&mode=driving&alternatives=true&key=${ENV.MAPS_API_KEY}`;
+
+    // If waypoints exist, make TWO requests:
+    //   1) primary with waypoints (the preferred route)
+    //   2) without waypoints + alternatives=true (to get alternative routes)
+    // If no waypoints, one request with alternatives=true is enough.
+    const hasWaypoints = waypoints.length > 0;
+
+    const [primaryRes, altRes] = await Promise.all(
+      hasWaypoints
+        ? [fetch(primaryUrl), fetch(altUrl)]
+        : [fetch(altUrl), Promise.resolve(null)]
+    );
+
+    const primaryJson = await primaryRes.json();
+    if (!primaryJson.routes?.length) return empty;
+
+    // Parse primary route
+    const first = primaryJson.routes[0];
+    const legs = first.legs || [];
+    const totalDist = legs.reduce((sum: number, l: any) => sum + (l.distance?.value || 0), 0);
+    const totalDur = legs.reduce((sum: number, l: any) => sum + (l.duration?.value || 0), 0);
+    const distText = totalDist < 1000 ? `${totalDist} m` : `${(totalDist / 1000).toFixed(1)} km`;
+    const durText = totalDur < 3600
+      ? `${Math.round(totalDur / 60)} min`
+      : `${Math.floor(totalDur / 3600)}h ${Math.round((totalDur % 3600) / 60)}m`;
+    const primaryPoly = first.overview_polyline?.points || '';
+
+    // Collect alternative polylines
+    const altPolylines: string[] = [];
+
+    // Alternatives from the primary response (when no waypoints, the primary request IS the alt request)
+    for (let i = 1; i < primaryJson.routes.length; i++) {
+      const poly = primaryJson.routes[i].overview_polyline?.points;
+      if (poly) altPolylines.push(poly);
+    }
+
+    // If we made a second request for alternatives (because waypoints blocked them)
+    if (hasWaypoints && altRes) {
+      const altJson = await altRes.json();
+      if (altJson.routes?.length) {
+        for (const route of altJson.routes) {
+          const poly = route.overview_polyline?.points;
+          // Don't add if it's the same as our primary
+          if (poly && poly !== primaryPoly) altPolylines.push(poly);
+        }
+      }
+    }
+
+    console.log(`[fetchAllRoutes] Primary route: ${primaryPoly.length} chars, Alternatives: ${altPolylines.length}`);
+
+    return {
+      primary: {
+        coords: primaryPoly ? decodePolyline(primaryPoly) : [],
+        distance: distText,
+        duration: durText,
+        encodedPolyline: primaryPoly,
+      },
+      alternatives: altPolylines,
+    };
+  } catch (e) {
+    console.warn('Directions API alternatives error:', e);
+  }
+  return empty;
+}
+
+// ─── Forward geocode (address → lat,lng) ────────────────────
+export async function geocodeAddress(
+  address: string,
+): Promise<{ latitude: number; longitude: number; formattedAddress: string } | null> {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${ENV.MAPS_API_KEY}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.results?.length > 0) {
+      const loc = json.results[0].geometry.location;
+      return {
+        latitude: loc.lat,
+        longitude: loc.lng,
+        formattedAddress: json.results[0].formatted_address,
+      };
+    }
+  } catch (e) {
+    console.warn('Geocode error:', e);
+  }
+  return null;
+}
+
 // ─── Reverse geocode ─────────────────────────────────────────
 export async function reverseGeocode(lat: number, lng: number): Promise<string> {
   try {

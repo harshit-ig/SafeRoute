@@ -66,6 +66,7 @@ export const tripApi = {
     sourceAddress: string;
     destinationAddress: string;
     routePolyline: string;
+    alternativePolylines?: string[];
     startTime: string;
   }) => api.post<TripResponse>('/trips/start', data),
 
@@ -87,6 +88,9 @@ export const tripApi = {
 
   getTrip: (tripId: string) =>
     api.get<TripResponse>(`/trips/${tripId}`),
+
+  updateLocation: (tripId: string, data: { latitude: number; longitude: number }) =>
+    api.post(`/trips/${tripId}/location`, data),
 };
 
 // ==================== Alert API ====================

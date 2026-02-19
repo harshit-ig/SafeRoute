@@ -5,7 +5,8 @@ const {
   cancelTrip,
   getUserTrips,
   getTripById,
-  getActiveTrip
+  getActiveTrip,
+  updateLocation
 } = require('../controllers/tripController');
 const { protect } = require('../middlewares/authMiddleware');
 
@@ -23,6 +24,9 @@ router.post('/:tripId/complete', completeTrip);
 // POST /api/trips/:tripId/cancel
 router.post('/:tripId/cancel', cancelTrip);
 
+// POST /api/trips/:tripId/location – live location pings
+router.post('/:tripId/location', updateLocation);
+
 // GET /api/trips/user/:userId
 router.get('/user/:userId', getUserTrips);
 
@@ -32,4 +36,4 @@ router.get('/user/:userId/active', getActiveTrip);
 // GET /api/trips/:tripId
 router.get('/:tripId', getTripById);
 
-module.exports = router; 
+module.exports = router;
